@@ -1,0 +1,235 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'RCV Data Platform - Core Infrastructure'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, prod]
+  
+  RedshiftMasterUsername:
+    Type: String
+    Default: admin
+    NoEcho: true
+  
+  RedshiftMasterPassword:
+    Type: String
+    NoEcho: true
+    MinLength: 8
+
+Resources:
+  # S3 Buckets
+  RawDataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'rcv-raw-data-${Environment}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToIA
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 90
+                StorageClass: STANDARD_IA
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  ArchiveBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'rcv-archive-${Environment}-${AWS::AccountId}'
+      LifecycleConfiguration:
+        Rules:
+          - Id: TransitionToGlacier
+            Status: Enabled
+            Transitions:
+              - TransitionInDays: 365
+                StorageClass: GLACIER
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  GlueScriptsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'rcv-glue-scripts-${Environment}-${AWS::AccountId}'
+
+  # Glue Database
+  GlueDatabase:
+    Type: AWS::Glue::Database
+    Properties:
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput:
+        Name: !Sub 'rcv_${Environment}'
+        Description: RCV data catalog
+
+  # Redshift Cluster
+  RedshiftCluster:
+    Type: AWS::Redshift::Cluster
+    Properties:
+      ClusterIdentifier: !Sub 'rcv-dw-${Environment}'
+      NodeType: ra3.xlplus
+      NumberOfNodes: 2
+      MasterUsername: !Ref RedshiftMasterUsername
+      MasterUserPassword: !Ref RedshiftMasterPassword
+      DBName: rcvdw
+      ClusterType: multi-node
+      Encrypted: true
+      PubliclyAccessible: false
+      VpcSecurityGroupIds:
+        - !Ref RedshiftSecurityGroup
+      IamRoles:
+        - !GetAtt RedshiftRole.Arn
+
+  RedshiftSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Redshift cluster security group
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5439
+          ToPort: 5439
+          SourceSecurityGroupId: !Ref GlueSecurityGroup
+
+  # VPC for Glue and Redshift
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsHostnames: true
+      EnableDnsSupport: true
+
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs '']
+
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [1, !GetAZs '']
+
+  # IAM Roles
+  GlueRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'RCV-Glue-Role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: glue.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSGlueServiceRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub '${RawDataBucket.Arn}/*'
+                  - !Sub '${ArchiveBucket.Arn}/*'
+                  - !Sub '${GlueScriptsBucket.Arn}/*'
+        - PolicyName: RedshiftAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - redshift:GetClusterCredentials
+                  - redshift-data:*
+                Resource: '*'
+
+  RedshiftRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'RCV-Redshift-Role-${Environment}'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: redshift.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3Access
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt RawDataBucket.Arn
+                  - !Sub '${RawDataBucket.Arn}/*'
+                  - !GetAtt ArchiveBucket.Arn
+                  - !Sub '${ArchiveBucket.Arn}/*'
+
+  GlueSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Glue job security group
+      VpcId: !Ref VPC
+
+  # SNS Topic for Alerts
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'rcv-alerts-${Environment}'
+      Subscription:
+        - Endpoint: data-team@example.com
+          Protocol: email
+
+  # CloudWatch Alarms
+  GlueJobFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'RCV-Glue-Job-Failures-${Environment}'
+      AlarmDescription: Alert on Glue job failures
+      MetricName: glue.driver.aggregate.numFailedTasks
+      Namespace: Glue
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+
+Outputs:
+  RedshiftClusterEndpoint:
+    Value: !GetAtt RedshiftCluster.Endpoint.Address
+    Export:
+      Name: !Sub '${AWS::StackName}-RedshiftEndpoint'
+  
+  RawDataBucketName:
+    Value: !Ref RawDataBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-RawBucket'
+  
+  ArchiveBucketName:
+    Value: !Ref ArchiveBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-ArchiveBucket'
+  
+  GlueRoleArn:
+    Value: !GetAtt GlueRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-GlueRoleArn'

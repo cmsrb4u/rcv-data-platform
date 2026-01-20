@@ -1,0 +1,186 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'RCV Data Platform - CloudWatch Monitoring and Alerts'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+  
+  AlertEmail:
+    Type: String
+    Description: Email for alerts
+
+Resources:
+  # SNS Topic
+  AlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub 'rcv-pipeline-alerts-${Environment}'
+      Subscription:
+        - Endpoint: !Ref AlertEmail
+          Protocol: email
+
+  # CloudWatch Dashboard
+  PipelineDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub 'RCV-Pipeline-${Environment}'
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "properties": {
+                "metrics": [
+                  ["Glue", "glue.driver.aggregate.numCompletedTasks", {"stat": "Sum"}],
+                  [".", "glue.driver.aggregate.numFailedTasks", {"stat": "Sum"}]
+                ],
+                "period": 300,
+                "stat": "Sum",
+                "region": "${AWS::Region}",
+                "title": "Glue Job Tasks"
+              }
+            },
+            {
+              "type": "metric",
+              "properties": {
+                "metrics": [
+                  ["AWS/Glue", "glue.driver.ExecutorAllocationManager.executors.numberAllExecutors", {"stat": "Average"}]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "Glue Executors"
+              }
+            },
+            {
+              "type": "metric",
+              "properties": {
+                "metrics": [
+                  ["AWS/Redshift", "CPUUtilization", {"stat": "Average"}],
+                  [".", "DatabaseConnections", {"stat": "Sum"}],
+                  [".", "PercentageDiskSpaceUsed", {"stat": "Average"}]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "Redshift Cluster Metrics"
+              }
+            },
+            {
+              "type": "log",
+              "properties": {
+                "query": "SOURCE '/aws-glue/jobs/error'\n| fields @timestamp, @message\n| filter @message like /ERROR/\n| sort @timestamp desc\n| limit 20",
+                "region": "${AWS::Region}",
+                "title": "Recent Glue Errors"
+              }
+            }
+          ]
+        }
+
+  # Alarms
+  GlueJobFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'RCV-Glue-Job-Failures-${Environment}'
+      AlarmDescription: Alert when Glue jobs fail
+      MetricName: glue.driver.aggregate.numFailedTasks
+      Namespace: Glue
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  GlueJobDurationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'RCV-Glue-Job-Duration-${Environment}'
+      AlarmDescription: Alert when Glue jobs run too long
+      MetricName: glue.driver.aggregate.elapsedTime
+      Namespace: Glue
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 7200000  # 2 hours in milliseconds
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+
+  RedshiftCPUAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'RCV-Redshift-High-CPU-${Environment}'
+      AlarmDescription: Alert on high Redshift CPU
+      MetricName: CPUUtilization
+      Namespace: AWS/Redshift
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 2
+      Threshold: 80
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+
+  RedshiftDiskSpaceAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'RCV-Redshift-Disk-Space-${Environment}'
+      AlarmDescription: Alert on high disk usage
+      MetricName: PercentageDiskSpaceUsed
+      Namespace: AWS/Redshift
+      Statistic: Average
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 85
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+
+  DataQualityFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub 'RCV-DQ-Failures-${Environment}'
+      AlarmDescription: Alert on data quality check failures
+      MetricName: DQCheckFailures
+      Namespace: RCV/DataQuality
+      Statistic: Sum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AlertTopic
+      TreatMissingData: notBreaching
+
+  # Log Groups
+  GlueJobLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws-glue/jobs/${Environment}'
+      RetentionInDays: 30
+
+  # Metric Filters
+  GlueErrorMetricFilter:
+    Type: AWS::Logs::MetricFilter
+    Properties:
+      FilterPattern: '[time, request_id, level = ERROR*, ...]'
+      LogGroupName: !Ref GlueJobLogGroup
+      MetricTransformations:
+        - MetricName: GlueErrors
+          MetricNamespace: RCV/Pipeline
+          MetricValue: '1'
+          DefaultValue: 0
+
+Outputs:
+  DashboardURL:
+    Value: !Sub 'https://console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=RCV-Pipeline-${Environment}'
+    Description: CloudWatch Dashboard URL
+  
+  AlertTopicArn:
+    Value: !Ref AlertTopic
+    Export:
+      Name: !Sub '${AWS::StackName}-AlertTopicArn'

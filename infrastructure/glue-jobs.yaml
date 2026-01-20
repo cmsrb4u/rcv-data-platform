@@ -1,0 +1,204 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'RCV Data Platform - Glue Jobs and Workflows'
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+  
+  GlueRoleArn:
+    Type: String
+    Description: ARN of Glue IAM role
+  
+  RedshiftConnection:
+    Type: String
+    Description: Glue connection name for Redshift
+  
+  RawBucket:
+    Type: String
+    Description: S3 bucket for raw data
+  
+  ArchiveBucket:
+    Type: String
+    Description: S3 bucket for archives
+
+Resources:
+  # Glue Jobs
+  LoadToStagingJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub 'rcv-load-to-staging-${Environment}'
+      Role: !Ref GlueRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub 's3://${RawBucket}/glue-scripts/load_to_staging.py'
+        PythonVersion: '3'
+      DefaultArguments:
+        '--job-language': 'python'
+        '--REDSHIFT_CONNECTION': !Ref RedshiftConnection
+        '--S3_RAW_BUCKET': !Ref RawBucket
+        '--enable-metrics': 'true'
+        '--enable-continuous-cloudwatch-log': 'true'
+      GlueVersion: '4.0'
+      MaxRetries: 1
+      Timeout: 60
+      NumberOfWorkers: 5
+      WorkerType: G.1X
+
+  DataQualityJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub 'rcv-data-quality-${Environment}'
+      Role: !Ref GlueRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub 's3://${RawBucket}/glue-scripts/data_quality_checks.py'
+        PythonVersion: '3'
+      DefaultArguments:
+        '--job-language': 'python'
+        '--REDSHIFT_CONNECTION': !Ref RedshiftConnection
+        '--enable-metrics': 'true'
+      GlueVersion: '4.0'
+      MaxRetries: 0
+      Timeout: 30
+      NumberOfWorkers: 2
+      WorkerType: G.1X
+
+  LoadDimensionsJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub 'rcv-load-dimensions-${Environment}'
+      Role: !Ref GlueRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub 's3://${RawBucket}/glue-scripts/load_dimensions_scd2.py'
+        PythonVersion: '3'
+      DefaultArguments:
+        '--job-language': 'python'
+        '--REDSHIFT_CONNECTION': !Ref RedshiftConnection
+        '--enable-metrics': 'true'
+      GlueVersion: '4.0'
+      MaxRetries: 1
+      Timeout: 120
+      NumberOfWorkers: 5
+      WorkerType: G.1X
+
+  LoadFactsJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub 'rcv-load-facts-${Environment}'
+      Role: !Ref GlueRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub 's3://${RawBucket}/glue-scripts/load_fact_registration.py'
+        PythonVersion: '3'
+      DefaultArguments:
+        '--job-language': 'python'
+        '--REDSHIFT_CONNECTION': !Ref RedshiftConnection
+        '--LOAD_TYPE': 'INCREMENTAL'
+        '--enable-metrics': 'true'
+      GlueVersion: '4.0'
+      MaxRetries: 1
+      Timeout: 180
+      NumberOfWorkers: 10
+      WorkerType: G.1X
+
+  ArchiveJob:
+    Type: AWS::Glue::Job
+    Properties:
+      Name: !Sub 'rcv-archive-old-data-${Environment}'
+      Role: !Ref GlueRoleArn
+      Command:
+        Name: glueetl
+        ScriptLocation: !Sub 's3://${RawBucket}/glue-scripts/archive_old_data.py'
+        PythonVersion: '3'
+      DefaultArguments:
+        '--job-language': 'python'
+        '--REDSHIFT_CONNECTION': !Ref RedshiftConnection
+        '--ARCHIVE_BUCKET': !Ref ArchiveBucket
+        '--enable-metrics': 'true'
+      GlueVersion: '4.0'
+      MaxRetries: 1
+      Timeout: 240
+      NumberOfWorkers: 5
+      WorkerType: G.1X
+
+  # Glue Workflow
+  DailyETLWorkflow:
+    Type: AWS::Glue::Workflow
+    Properties:
+      Name: !Sub 'rcv-daily-etl-${Environment}'
+      Description: Daily incremental ETL pipeline
+
+  # Workflow Triggers
+  WorkflowStartTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Sub 'rcv-daily-start-${Environment}'
+      Type: SCHEDULED
+      Schedule: 'cron(0 2 * * ? *)'  # 2 AM daily
+      WorkflowName: !Ref DailyETLWorkflow
+      Actions:
+        - JobName: !Ref LoadToStagingJob
+          Arguments:
+            '--TABLE_NAME': 'registration'
+
+  DQTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Sub 'rcv-dq-trigger-${Environment}'
+      Type: CONDITIONAL
+      WorkflowName: !Ref DailyETLWorkflow
+      Predicate:
+        Conditions:
+          - LogicalOperator: EQUALS
+            JobName: !Ref LoadToStagingJob
+            State: SUCCEEDED
+      Actions:
+        - JobName: !Ref DataQualityJob
+          Arguments:
+            '--TABLE_NAME': 'registration'
+
+  DimensionsTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Sub 'rcv-dimensions-trigger-${Environment}'
+      Type: CONDITIONAL
+      WorkflowName: !Ref DailyETLWorkflow
+      Predicate:
+        Conditions:
+          - LogicalOperator: EQUALS
+            JobName: !Ref DataQualityJob
+            State: SUCCEEDED
+      Actions:
+        - JobName: !Ref LoadDimensionsJob
+
+  FactsTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Sub 'rcv-facts-trigger-${Environment}'
+      Type: CONDITIONAL
+      WorkflowName: !Ref DailyETLWorkflow
+      Predicate:
+        Conditions:
+          - LogicalOperator: EQUALS
+            JobName: !Ref LoadDimensionsJob
+            State: SUCCEEDED
+      Actions:
+        - JobName: !Ref LoadFactsJob
+
+  # Monthly Archive Trigger
+  MonthlyArchiveTrigger:
+    Type: AWS::Glue::Trigger
+    Properties:
+      Name: !Sub 'rcv-monthly-archive-${Environment}'
+      Type: SCHEDULED
+      Schedule: 'cron(0 3 1 * ? *)'  # 1st of month at 3 AM
+      Actions:
+        - JobName: !Ref ArchiveJob
+
+Outputs:
+  WorkflowName:
+    Value: !Ref DailyETLWorkflow
+    Export:
+      Name: !Sub '${AWS::StackName}-WorkflowName'
