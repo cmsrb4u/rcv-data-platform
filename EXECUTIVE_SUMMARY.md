@@ -77,7 +77,7 @@ Redshift (10 years) → S3 Parquet Archive (10+ years)
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| Data Warehouse | Amazon Redshift (RA3) | Analytical database |
+| Data Warehouse | Amazon Redshift Serverless | Analytics database |
 | ETL | AWS Glue | Data transformation |
 | Storage | Amazon S3 | Raw data and archives |
 | Orchestration | AWS Glue Workflows | Pipeline scheduling |
@@ -107,20 +107,20 @@ Redshift (10 years) → S3 Parquet Archive (10+ years)
 ## Cost Summary
 
 ### Monthly Operating Costs (Production)
-- **Optimized**: $3,665/month
-- **Standard**: $5,205/month
-- **With Real-time CDC**: $5,394/month
+- **Optimized**: $2,325/month
+- **Standard**: $3,325/month
+- **With Real-time CDC**: $3,514/month
 
 ### Annual Costs
-- **Year 1** (Dev + Prod): $51,615
-- **Year 2-3** (Steady State): $43,980/year
+- **Year 1** (Dev + Prod): $32,151
+- **Year 2-3** (Steady State): $27,900/year
 
-### 3-Year TCO: $139,575 (optimized)
+### 3-Year TCO: $87,951 (optimized)
 
 ### Cost Savings vs Commercial Solutions
 - **Snowflake/Databricks**: $288K-540K (3-year)
-- **AWS Solution**: $140K (3-year)
-- **Savings**: 50-75% ($148K-400K)
+- **AWS Serverless Solution**: $88K (3-year)
+- **Savings**: 70-85% ($200K-452K)**
 
 ## Business Benefits
 
@@ -140,9 +140,9 @@ Redshift (10 years) → S3 Parquet Archive (10+ years)
 - **Flexibility**: Easy to add new subject areas
 
 ### ROI
-- **Year 1 ROI**: 168%
-- **Year 2+ ROI**: 682%
-- **Payback Period**: 4.5 months
+- **Year 1 ROI**: 226%
+- **Year 2+ ROI**: 975%
+- **Payback Period**: 3.7 months
 
 ## Success Metrics
 
@@ -209,7 +209,8 @@ This solution provides a scalable, cost-effective, and well-architected data pla
 ✓ Comprehensive monitoring and alerting
 ✓ Power BI integration for reporting
 ✓ PII protection and compliance
-✓ 50-75% cost savings vs commercial alternatives
+✓ Redshift Serverless with auto-scaling
+✓ 70-85% cost savings vs commercial alternatives
 
 **Recommendation**: Proceed with implementation following the 14-week plan.
 

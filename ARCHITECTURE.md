@@ -41,17 +41,32 @@
 - Additional storage
 - More complex ETL logic
 
-## ADR-004: Redshift RA3 Nodes
+## ADR-004: Redshift Serverless
 
-**Decision**: Use RA3.xlplus nodes for Redshift cluster
+**Decision**: Use Redshift Serverless instead of provisioned clusters
 
 **Rationale**:
-- Managed storage scales independently
-- Better cost for large datasets
-- Improved performance for complex queries
-- Supports data sharing
+- Pay-per-use pricing (no idle costs)
+- Automatic scaling based on workload
+- No capacity planning required
+- Lower operational overhead
+- Better cost efficiency for variable workloads
 
-## ADR-005: AWS Glue for ETL
+**Implementation**:
+- Base capacity: 32 RPUs (can scale to 512)
+- Auto-pause when idle
+- Automatic backup and recovery
+- Managed storage scales independently
+
+**Trade-offs**:
+- Cold start latency (first query after idle)
+- Less control over specific node configuration
+- May be more expensive for 24/7 heavy workloads
+
+**Cost Impact**:
+- ~40% cheaper than provisioned RA3 clusters
+- $2,904/month vs $4,784/month (8hr/day usage)
+- Better for dev/test environments
 
 **Decision**: Use AWS Glue instead of custom EMR or Lambda
 

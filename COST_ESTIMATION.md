@@ -2,17 +2,21 @@
 
 ## Monthly Cost Breakdown (Production)
 
-### Amazon Redshift
-**Cluster Configuration**: 2x ra3.xlplus nodes
-- Compute: 2 nodes × $3.26/hour × 730 hours = **$4,760/month**
-- Managed Storage: 500 GB × $0.024/GB = **$12/month**
+### Amazon Redshift Serverless
+**Workgroup Configuration**: Base capacity 32 RPUs
+- Compute: Pay-per-use, auto-scaling
+- Base capacity: 32 RPUs × $0.375/RPU-hour
+- Estimated usage: 8 hours/day active queries
+- Monthly: 32 RPUs × $0.375 × 240 hours = **$2,880/month**
+- Storage: 500 GB × $0.024/GB = **$12/month**
 - Backup Storage: 500 GB × $0.024/GB = **$12/month**
-- **Redshift Total: ~$4,784/month**
+- **Redshift Serverless Total: ~$2,904/month**
 
 *Cost Optimization*:
-- Use auto-pause for dev (save ~70%)
-- Consider Reserved Instances (save 30-40%)
-- Use RA3 managed storage (cheaper than DC2)
+- Auto-pause when idle (no compute charges)
+- Pay only for actual usage
+- Scale up/down automatically based on workload
+- No upfront commitment required
 
 ### Amazon S3
 **Raw Data Landing**: 100 GB/month new data
@@ -91,57 +95,57 @@
 ## Total Monthly Cost Estimates
 
 ### Scenario 1: Minimal (Dev Environment)
-- Redshift: $1,428 (auto-pause 70% of time)
+- Redshift Serverless: $580 (2 hours/day usage)
 - S3: $46.50
 - Glue: $100 (reduced frequency)
 - CloudWatch: $15
-- **Total: ~$1,590/month**
+- **Total: ~$742/month**
 
 ### Scenario 2: Standard (Production)
-- Redshift: $4,784
+- Redshift Serverless: $2,904
 - S3: $46.50
 - Glue: $339.80
 - CloudWatch: $30.30
 - Data Transfer: $4.50
-- **Total: ~$5,205/month**
+- **Total: ~$3,325/month**
 
 ### Scenario 3: With DMS (Production + Real-time CDC)
-- Redshift: $4,784
+- Redshift Serverless: $2,904
 - S3: $46.50
 - Glue: $339.80
 - DMS: $151.50
 - CloudWatch: $30.30
 - Data Transfer: $4.50
 - VPC: $37.35
-- **Total: ~$5,394/month**
+- **Total: ~$3,514/month**
 
 ---
 
 ## Annual Cost Projection
 
 ### Year 1 (with growth)
-- Months 1-3 (Dev): $1,590 × 3 = $4,770
-- Months 4-12 (Prod): $5,205 × 9 = $46,845
-- **Year 1 Total: ~$51,615**
+- Months 1-3 (Dev): $742 × 3 = $2,226
+- Months 4-12 (Prod): $3,325 × 9 = $29,925
+- **Year 1 Total: ~$32,151**
 
 ### Year 2-3 (Steady State)
-- Monthly: $5,205
-- Annual: $5,205 × 12 = **$62,460/year**
+- Monthly: $3,325
+- Annual: $3,325 × 12 = **$39,900/year**
 
-### 3-Year TCO: ~$176,535
+### 3-Year TCO: ~$111,951
 
 ---
 
 ## Cost Optimization Strategies
 
-### Immediate Savings (30-40%)
-1. **Redshift Reserved Instances**: Save $1,430/month (30%)
-2. **Auto-pause Dev Cluster**: Save $3,332/month on dev
+### Immediate Savings (40-50%)
+1. **Redshift Serverless Auto-pause**: Automatic (no idle charges)
+2. **Right-size Base Capacity**: Start with 16 RPUs, scale as needed
 3. **S3 Lifecycle Policies**: Save $10/month
 4. **Glue Job Optimization**: Save $100/month (reduce DPUs)
 
-**Potential Monthly Savings: ~$1,540 (30%)**
-**Optimized Production Cost: ~$3,665/month**
+**Potential Monthly Savings: ~$1,000 (30%)**
+**Optimized Production Cost: ~$2,325/month**
 
 ### Long-term Savings
 1. **Redshift Serverless**: Pay per query (if usage is sporadic)
@@ -153,30 +157,31 @@
 
 ## Cost Comparison: Build vs Buy
 
-### Build (This Solution)
-- **Monthly**: $3,665 (optimized)
-- **Annual**: $43,980
-- **3-Year**: $131,940
+### Build (This Solution - Serverless)
+- **Monthly**: $2,325 (optimized)
+- **Annual**: $27,900
+- **3-Year**: $83,700
 
 ### Buy (Commercial DW Platform)
 - **Snowflake/Databricks**: $8,000-15,000/month
 - **Annual**: $96,000-180,000
 - **3-Year**: $288,000-540,000
 
-**Savings with AWS Solution: 50-75%**
+**Savings with AWS Serverless Solution: 70-85%**
 
 ---
 
 ## Resource Scaling Guidelines
 
-### When to Scale Up Redshift
-- Query latency > 10 seconds
-- CPU utilization > 80% sustained
-- Disk space > 85%
+### When to Scale Up Redshift Serverless
+- Query latency > 10 seconds consistently
+- Workload exceeds current RPU capacity
+- Frequent queuing of queries
 
 **Scaling Options**:
-- Add nodes: +$2,380/month per node
-- Upgrade to ra3.4xlarge: +$8,000/month
+- Increase base capacity: 32 → 64 RPUs (+$2,880/month for 8hr/day)
+- Increase max capacity for burst workloads
+- Optimize queries and data distribution
 
 ### When to Scale Up Glue
 - Job duration > 2 hours
@@ -192,24 +197,24 @@
 ## Budget Allocation
 
 ### Development Phase (3 months)
-- Infrastructure: $4,770
+- Infrastructure: $2,226
 - Personnel (2 FTE): $60,000
-- **Total: $64,770**
+- **Total: $62,226**
 
 ### Annual Operations
-- Infrastructure: $43,980
+- Infrastructure: $27,900
 - Personnel (0.5 FTE): $50,000
 - Training: $5,000
 - Contingency: $10,000
-- **Total: $108,980/year**
+- **Total: $92,900/year**
 
 ---
 
 ## ROI Analysis
 
 ### Costs
-- Year 1: $64,770 (dev) + $46,845 (prod) = $111,615
-- Year 2-3: $43,980/year
+- Year 1: $62,226 (dev) + $29,925 (prod) = $92,151
+- Year 2-3: $27,900/year
 
 ### Benefits (Estimated)
 - Reduced manual reporting: $100,000/year
@@ -218,7 +223,7 @@
 - **Total Annual Benefit: $300,000**
 
 ### ROI
-- Year 1: ($300,000 - $111,615) / $111,615 = **168% ROI**
-- Year 2+: ($300,000 - $43,980) / $43,980 = **682% ROI**
+- Year 1: ($300,000 - $92,151) / $92,151 = **226% ROI**
+- Year 2+: ($300,000 - $27,900) / $27,900 = **975% ROI**
 
-**Payback Period: 4.5 months**
+**Payback Period: 3.7 months**

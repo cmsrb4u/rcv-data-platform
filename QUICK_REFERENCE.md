@@ -2,19 +2,31 @@
 
 ## Common Commands
 
-### AWS CLI - Redshift
+### AWS CLI - Redshift Serverless
 ```bash
-# Connect to Redshift
-psql -h <endpoint>.redshift.amazonaws.com -U admin -d rcvdw -p 5439
+# Get workgroup endpoint
+aws redshift-serverless get-workgroup --workgroup-name rcv-dw-dev
 
-# Check cluster status
-aws redshift describe-clusters --cluster-identifier rcv-dw-dev
+# Connect to Redshift Serverless
+psql -h <workgroup-endpoint>.redshift-serverless.amazonaws.com -U admin -d rcvdw -p 5439
 
-# Pause cluster (dev)
-aws redshift pause-cluster --cluster-identifier rcv-dw-dev
+# Get namespace info
+aws redshift-serverless get-namespace --namespace-name rcv-dw-dev
 
-# Resume cluster
-aws redshift resume-cluster --cluster-identifier rcv-dw-dev
+# Update base capacity
+aws redshift-serverless update-workgroup \
+  --workgroup-name rcv-dw-dev \
+  --base-capacity 64
+
+# Check usage metrics
+aws cloudwatch get-metric-statistics \
+  --namespace AWS/Redshift-Serverless \
+  --metric-name ComputeCapacity \
+  --dimensions Name=WorkgroupName,Value=rcv-dw-dev \
+  --start-time $(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%S) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%S) \
+  --period 300 \
+  --statistics Average
 ```
 
 ### AWS CLI - Glue
@@ -192,8 +204,30 @@ aws cloudwatch get-metric-statistics \
   --statistics Sum
 ```
 
-### Redshift Performance Issues
+### Redshift Serverless Performance Issues
 ```sql
+-- Check query performance
+SELECT 
+    query_id,
+    user_name,
+    start_time,
+    end_time,
+    DATEDIFF(seconds, start_time, end_time) AS duration_seconds,
+    query_text
+FROM sys_query_history
+WHERE start_time > DATEADD(hour, -24, GETDATE())
+ORDER BY duration_seconds DESC
+LIMIT 10;
+
+-- Check RPU usage
+SELECT 
+    start_time,
+    compute_capacity,
+    compute_seconds
+FROM sys_serverless_usage
+WHERE start_time > DATEADD(day, -7, GETDATE())
+ORDER BY start_time DESC;
+
 -- Analyze tables
 ANALYZE dw.f_registration;
 ANALYZE dw.d_date;
@@ -201,19 +235,6 @@ ANALYZE dw.d_code;
 
 -- Vacuum tables
 VACUUM dw.f_registration;
-
--- Check for table locks
-SELECT 
-    l.table_id,
-    t.tablename,
-    l.lock_owner_pid,
-    l.lock_status
-FROM stv_locks l
-JOIN pg_tables t ON l.table_id = t.tablename::regclass::oid
-WHERE t.schemaname = 'dw';
-
--- Kill long-running query
-SELECT pg_terminate_backend(<pid>);
 ```
 
 ### Data Quality Issues
@@ -242,10 +263,10 @@ https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#dashboards:name=
 ```
 
 ### Key Metrics to Monitor
+- Redshift Serverless RPU usage (target: optimize for workload)
+- Query duration (target: <5 seconds for dashboards)
 - Glue job success rate (target: >99%)
 - Glue job duration (target: <2 hours)
-- Redshift CPU utilization (target: <80%)
-- Redshift disk space (target: <85%)
 - DQ check pass rate (target: >99%)
 
 ## Contacts and Escalation

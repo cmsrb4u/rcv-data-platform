@@ -31,12 +31,12 @@ aws cloudformation describe-stacks \
   --query 'Stacks[0].Outputs'
 ```
 
-## Step 2: Setup Redshift
+## Step 2: Setup Redshift Serverless
 
 ### 2.1 Create Schemas
 ```bash
-# Connect to Redshift
-psql -h <redshift-endpoint> -U admin -d rcvdw -p 5439
+# Connect to Redshift Serverless
+psql -h <workgroup-endpoint>.redshift-serverless.amazonaws.com -U admin -d rcvdw -p 5439
 
 # Create schemas
 CREATE SCHEMA IF NOT EXISTS staging;
@@ -46,10 +46,10 @@ CREATE SCHEMA IF NOT EXISTS dw;
 ### 2.2 Create Tables
 ```bash
 # Run DDL scripts in order
-psql -h <redshift-endpoint> -U admin -d rcvdw -f redshift/staging/00_create_staging.sql
-psql -h <redshift-endpoint> -U admin -d rcvdw -f redshift/dimensions/01_create_dimensions.sql
-psql -h <redshift-endpoint> -U admin -d rcvdw -f redshift/facts/02_create_facts.sql
-psql -h <redshift-endpoint> -U admin -d rcvdw -f redshift/dimensions/03_populate_reference_data.sql
+psql -h <workgroup-endpoint>.redshift-serverless.amazonaws.com -U admin -d rcvdw -f redshift/staging/00_create_staging.sql
+psql -h <workgroup-endpoint>.redshift-serverless.amazonaws.com -U admin -d rcvdw -f redshift/dimensions/01_create_dimensions.sql
+psql -h <workgroup-endpoint>.redshift-serverless.amazonaws.com -U admin -d rcvdw -f redshift/facts/02_create_facts.sql
+psql -h <workgroup-endpoint>.redshift-serverless.amazonaws.com -U admin -d rcvdw -f redshift/dimensions/03_populate_reference_data.sql
 ```
 
 ## Step 3: Deploy Glue Jobs
@@ -264,18 +264,15 @@ aws glue get-job-run \
   --run-id <run-id>
 ```
 
-### Redshift Performance Issues
-```sql
--- Check table statistics
-SELECT * FROM svv_table_info WHERE schema = 'dw';
+### Redshift Serverless Performance Issues
+- Query latency > 10 seconds consistently
+- RPU capacity maxed out
+- Frequent query queuing
 
--- Analyze tables
-ANALYZE dw.f_registration;
-ANALYZE dw.d_date;
-
--- Vacuum tables
-VACUUM dw.f_registration;
-```
+**Scaling Options**:
+- Increase base capacity (32 → 64 → 128 RPUs)
+- Increase max capacity for burst workloads
+- Optimize queries and data distribution
 
 ### Data Quality Issues
 ```sql

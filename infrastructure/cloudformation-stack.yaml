@@ -67,28 +67,36 @@ Resources:
         Name: !Sub 'rcv_${Environment}'
         Description: RCV data catalog
 
-  # Redshift Cluster
-  RedshiftCluster:
-    Type: AWS::Redshift::Cluster
+  # Redshift Serverless Namespace
+  RedshiftServerlessNamespace:
+    Type: AWS::RedshiftServerless::Namespace
     Properties:
-      ClusterIdentifier: !Sub 'rcv-dw-${Environment}'
-      NodeType: ra3.xlplus
-      NumberOfNodes: 2
-      MasterUsername: !Ref RedshiftMasterUsername
-      MasterUserPassword: !Ref RedshiftMasterPassword
-      DBName: rcvdw
-      ClusterType: multi-node
-      Encrypted: true
-      PubliclyAccessible: false
-      VpcSecurityGroupIds:
-        - !Ref RedshiftSecurityGroup
+      NamespaceName: !Sub 'rcv-dw-${Environment}'
+      AdminUsername: !Ref RedshiftMasterUsername
+      AdminUserPassword: !Ref RedshiftMasterPassword
+      DbName: rcvdw
       IamRoles:
         - !GetAtt RedshiftRole.Arn
+      DefaultIamRoleArn: !GetAtt RedshiftRole.Arn
+
+  # Redshift Serverless Workgroup
+  RedshiftServerlessWorkgroup:
+    Type: AWS::RedshiftServerless::Workgroup
+    Properties:
+      WorkgroupName: !Sub 'rcv-dw-${Environment}'
+      NamespaceName: !Ref RedshiftServerlessNamespace
+      BaseCapacity: 32
+      PubliclyAccessible: false
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref RedshiftSecurityGroup
 
   RedshiftSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Redshift cluster security group
+      GroupDescription: Redshift Serverless security group
       VpcId: !Ref VPC
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -214,10 +222,15 @@ Resources:
         - !Ref AlertTopic
 
 Outputs:
-  RedshiftClusterEndpoint:
-    Value: !GetAtt RedshiftCluster.Endpoint.Address
+  RedshiftServerlessEndpoint:
+    Value: !GetAtt RedshiftServerlessWorkgroup.Workgroup.Endpoint.Address
     Export:
       Name: !Sub '${AWS::StackName}-RedshiftEndpoint'
+  
+  RedshiftServerlessWorkgroupName:
+    Value: !Ref RedshiftServerlessWorkgroup
+    Export:
+      Name: !Sub '${AWS::StackName}-WorkgroupName'
   
   RawDataBucketName:
     Value: !Ref RawDataBucket
